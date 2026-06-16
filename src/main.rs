@@ -1,18 +1,18 @@
 mod dbus;
 mod cli;
+mod utils;
 
+use utils::*;
 use std::collections::HashMap;
 use std::io::IsTerminal;
 use std::sync::LazyLock;
 use anyhow::{Context, anyhow, Result};
 use clap::Parser;
-use dbus::status_notifier_watcher::StatusNotifierWatcherProxyBlocking;
 use dbus::status_notifier_item::StatusNotifierItemProxyBlocking;
 use zbus::blocking::Connection;
 use zbus::blocking::fdo::DBusProxy;
 use zbus::names::BusName;
 use zbus::zvariant::{OwnedValue, Value};
-use crate::dbus::dbusmenu::dbusmenuProxyBlocking;
 
 // global session bus cause its gonna be used everywhere
 static CONN: LazyLock<Connection> = LazyLock::new(|| {
@@ -145,74 +145,19 @@ impl MenuNode {
     }
 }
 
-/// Returns executable of the process
-pub fn get_exe_from_pid(pid: u32) -> String {
-    match std::fs::read_link(format!("/proc/{pid}/exe")) {
-        Ok(x) => x
-            .to_string_lossy()
-            .to_string(),
-        Err(_) => "".to_owned(),
-    }
-}
-
-/// Splits path like `:1.298/org/ayatana/NotificationItem/TOA2Xeo1bQ` into
-/// destination and path
-fn split_path(input: &str) -> Option<(String, String)> {
-    // just find first slash
-    let (dest, path) = input.split_once('/')?;
-
-    Some((dest.to_owned(), format!("/{path}")))
-}
-
-/// Returns registered tray items
-fn get_registered_items() -> Result<Vec<String>> {
-    let watcher_proxy = StatusNotifierWatcherProxyBlocking::builder(&CONN)
-        .destination("org.kde.StatusNotifierWatcher")? // TODO fallback on org.freedesktop.*
-        .path("/StatusNotifierWatcher")?
-        .build()?;
-
-    Ok(watcher_proxy.registered_status_notifier_items()?)
-}
-
-/// Get proxy for tray item
-fn get_item_proxy<'a>(dest: &str, path: &str) -> Result<StatusNotifierItemProxyBlocking<'a>> {
-    Ok(
-        StatusNotifierItemProxyBlocking::builder(&CONN)
-            .destination(dest.to_owned())?
-            .path(path.to_owned())?
-            .build()?
-    )
-}
-
-fn get_item_menu_proxy<'a>(dest: &str, path: &str) -> Result<dbusmenuProxyBlocking<'a>> {
-    Ok(
-        dbusmenuProxyBlocking::builder(&CONN)
-            .destination(dest.to_owned())?
-            .path(path.to_owned())?
-            .build()?
-    )
-}
-
-fn get_item_menu_layout(proxy: &dbusmenuProxyBlocking) -> Result<MenuNode>
-{
-    let (_, (id, props, children)) = proxy.get_layout(0, -1, &[
-        "type", "label", "toggle-type", "toggle-state", "enabled", "visible"
-    ])?;
-
-    Ok(MenuNode::new(id, props, children)?)
-}
-
 fn main() -> Result<()> {
     let mut args = cli::Cli::parse();
     let cmd = std::mem::replace(&mut args.cmd, cli::CliCommands::None);
 
-    // dbg!(&args, &cmd);
+    // TODO catch the anyhow error and terminate with code 1 if there is any
 
     match cmd {
         cli::CliCommands::List(x) => cmd_list(args, x)?,
-        cli::CliCommands::GetLayout(x) => cmd_layout(args, x)?,
+        cli::CliCommands::Activate(x) => cmd_activate(args, x)?,
+        cli::CliCommands::Scroll(x) => cmd_scroll(args, x)?,
+        cli::CliCommands::Layout(x) => cmd_layout(args, x)?,
+        cli::CliCommands::Click(x) => cmd_menu(args, x)?,
         cli::CliCommands::None => unreachable!(),
-        _ => todo!(),
     };
 
     Ok(())
@@ -233,11 +178,8 @@ fn cmd_list(_cli_args: cli::Cli, _cmd_args: cli::CmdList) -> Result<()> {
 
     let mut stdout = std::io::stdout();
 
-    // print pretty in terminal
     if *IS_TTY {
         serde_json::to_writer_pretty(&mut stdout, &items)?;
-
-        // add newline
         println!();
     } else {
         serde_json::to_writer(&mut stdout, &items)?;
@@ -246,9 +188,37 @@ fn cmd_list(_cli_args: cli::Cli, _cmd_args: cli::CmdList) -> Result<()> {
     Ok(())
 }
 
+fn cmd_activate(_cli_args: cli::Cli, cmd_args: cli::CmdActivate) -> Result<()> {
+    let (dest, path) = split_path(&cmd_args.path)
+        .with_context(|| anyhow!("could not parse destination {:?}", cmd_args.path))?;
+
+    let proxy = get_item_proxy(&dest, &path)?;
+
+    if cmd_args.secondary {
+        proxy.secondary_activate(cmd_args.x, cmd_args.y)?;
+    } else if cmd_args.context_menu {
+        proxy.context_menu(cmd_args.x, cmd_args.y)?;
+    } else { // regular activation
+        proxy.activate(cmd_args.x, cmd_args.y)?;
+    }
+
+    Ok(())
+}
+
+fn cmd_scroll(_cli_args: cli::Cli, cmd_args: cli::CmdScroll) -> Result<()> {
+    let (dest, path) = split_path(&cmd_args.path)
+        .with_context(|| anyhow!("could not parse destination {:?}", cmd_args.path))?;
+
+    let proxy = get_item_proxy(&dest, &path)?;
+
+    proxy.scroll(cmd_args.delta, &cmd_args.orientation)?;
+
+    Ok(())
+}
+
 fn cmd_layout(_cli_args: cli::Cli, cmd_args: cli::CmdLayout) -> Result<()> {
     let (dest, path) = split_path(&cmd_args.path)
-        .with_context(|| anyhow!("could not parse {:?} as destination or path", cmd_args.path))?;
+        .with_context(|| anyhow!("could not parse destination {:?}", cmd_args.path))?;
 
     let proxy = get_item_menu_proxy(&dest, &path)?;
 
@@ -264,6 +234,17 @@ fn cmd_layout(_cli_args: cli::Cli, cmd_args: cli::CmdLayout) -> Result<()> {
     } else {
         serde_json::to_writer(&mut stdout, &layout)?;
     }
+
+    Ok(())
+}
+
+fn cmd_menu(_cli_args: cli::Cli, cmd_args: cli::CmdClick) -> Result<()> {
+    let (dest, path) = split_path(&cmd_args.path)
+        .with_context(|| anyhow!("could not parse destination {:?}", cmd_args.path))?;
+
+    let proxy = get_item_menu_proxy(&dest, &path)?;
+
+    proxy.event(cmd_args.id, "clicked", cmd_args.data.as_ref().unwrap_or(&OwnedValue::from(0)), 0)?;
 
     Ok(())
 }
