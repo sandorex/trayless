@@ -1,12 +1,4 @@
-use std::{fmt::Display, path::PathBuf};
 use clap::{Args, Parser, Subcommand};
-
-#[derive(Debug, Clone, clap::ValueEnum)]
-pub enum OutputFormat {
-    JSON,
-    CSVNull,
-    CSV,
-}
 
 /// Utility for manipulating and querying tray indicators
 ///
@@ -15,10 +7,6 @@ pub enum OutputFormat {
 #[derive(Parser, Debug, Clone)]
 #[command(author, version, about)]
 pub struct Cli {
-    /// Use specific format for output data
-    #[clap(short, long, default_value = "json")]
-    pub format: OutputFormat,
-
     #[command(subcommand)]
     pub cmd: CliCommands,
 }
@@ -34,8 +22,67 @@ pub struct CmdList {
     // pub fields: Vec<String>,
 }
 
+#[derive(Debug, Clone, clap::ValueEnum)]
+pub enum CmdActivateType {
+    ContextMenu,
+    Activate,
+    SecondaryActivate,
+    Scroll
+}
+
+#[derive(Args, Debug, Clone)]
+pub struct CmdActivate {
+    #[clap(value_name = "DESTINATION")]
+    pub destination: String,
+
+    /// X position of activation
+    pub x: i32,
+
+    /// Y position of activation
+    pub y: i32,
+}
+
+#[derive(Args, Debug, Clone)]
+pub struct CmdScroll {
+    #[clap(value_name = "DESTINATION")]
+    pub destination: String,
+
+    /// How much was scrolled
+    pub delta: i32,
+
+    /// Direction of scrolling
+    pub orientation: String,
+}
+
+#[derive(Args, Debug, Clone)]
+pub struct CmdActivateMenu {
+    #[clap(value_name = "DESTINATION")]
+    pub destination: String,
+
+    /// How much was scrolled
+    pub delta: i32,
+
+    /// Direction of scrolling
+    pub orientation: String,
+}
+
 #[derive(Args, Debug, Clone)]
 pub struct CmdLayout {
+    /// Show hidden menu items
+    #[clap(short='H', long)]
+    pub hidden: bool,
+
+    /// Show disabled menu items
+    #[clap(short, long)]
+    pub disabled: bool,
+
+    /// Path to the dbusmenu object including destination
+    #[clap(value_name = "MENU_PATH")]
+    pub path: String,
+}
+
+#[derive(Args, Debug, Clone)]
+pub struct CmdMenu {
     /// Id of the item or full path
     #[clap(value_name = "ID | PATH")]
     pub path: String,
@@ -46,34 +93,23 @@ pub enum CliCommands {
     /// List tray items
     List(CmdList),
 
-    // /// Activate a tray item
-    // Activate(),
+    /// Call context menu on a tray item
+    ContextMenu(CmdActivate),
 
-    // /// Activate menu item of a tray item
-    // Menu(),
+    /// Call activate on a tray item
+    Activate(CmdActivate),
 
-    /// Returns menu layout for tray item
-    Layout(CmdLayout),
-    // /// Formats device/partition (ERASES ALL DATA!)
-    // ///
-    // /// In case target is a device block file then it formats it to contain a
-    // /// single FAT32 partition with MBR/BIOS partition table
-    // #[cfg_attr(target_os = "windows", clap(skip))]
-    // Format,
-    //
-    // /// Shuffle music
-    // Shuffle(CmdShuffle),
-    //
-    // /// Cleans up the links making it editable directly
-    // Clean(CmdClean),
-    //
-    // /// Imports file into the filesystem without mounting it, will not overwrite files
-    // Import(CmdImport),
-    //
-    // /// Processes files using ffmpeg to apply some adjustments (recommended)
-    // ///
-    // /// All options have a description but always test if the files are playable on a computer!
-    // Process(CmdProcess),
+    /// Call secondary activate on a tray item
+    SecondaryActivate(CmdActivate),
+
+    /// Call scroll on a tray item
+    Scroll(CmdScroll),
+
+    /// Get tray item layout
+    GetLayout(CmdLayout),
+
+    /// Activate specific item in menu
+    Menu(CmdMenu),
 
     #[clap(skip)]
     None,
