@@ -14,13 +14,12 @@ pub struct Cli {
 
 #[derive(Args, Debug, Clone)]
 pub struct CmdList {
-    // TODO
-    // #[clap(long, exclusive = true)]
-    // pub list_fields: bool,
-    //
-    // /// Select which fields to return (empty for all)
-    // #[clap(short, long)]
-    // pub fields: Vec<String>,
+    #[clap(long, exclusive = true)]
+    pub list_fields: bool,
+
+    /// Select which fields to return (empty for all)
+    #[clap(short, long)]
+    pub fields: Vec<String>,
 }
 
 #[derive(Args, Debug, Clone)]
@@ -98,6 +97,14 @@ pub struct CmdClick {
     pub data: Option<OwnedValue>,
 }
 
+// TODO Daemonization should be the default, use crate?
+#[derive(Args, Debug, Clone)]
+pub struct CmdDaemon {
+    /// Run in foreground
+    #[clap(long = "fg")]
+    pub foreground: bool,
+}
+
 #[derive(Subcommand, Debug, Clone)]
 pub enum CliCommands {
     /// List tray items
@@ -114,6 +121,15 @@ pub enum CliCommands {
 
     /// Activate specific item in menu
     Click(CmdClick),
+
+    /// Start as daemon that provides StatusNotifierWatcher service
+    ///
+    /// Most software that provide a tray act as the watcher as well, daemon
+    /// should be used ONLY when you dont have a watcher, while you can start
+    /// other hosts after trayless their tray will be partially-broken
+    ///
+    /// Only one watcher can be active at the time
+    Daemon,
 
     #[clap(skip)]
     None,

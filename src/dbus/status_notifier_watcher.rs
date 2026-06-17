@@ -20,14 +20,14 @@
 //!
 //! [Writing a client proxy]: https://z-galaxy.github.io/zbus/client.html
 //! [D-Bus standard interfaces]: https://dbus.freedesktop.org/doc/dbus-specification.html#standard-interfaces,
-// TODO should i modify it so the path is correct?
-// #[proxy(
-//     interface = "org.kde.StatusNotifierWatcher",
-//     default_service = "org.kde.StatusNotifierWatcher",
-//     default_path = "/StatusNotifierWatcher"
-// )]
-use zbus::proxy;
-#[proxy(interface = "org.kde.StatusNotifierWatcher", assume_defaults = true)]
+use std::{collections::{HashMap, HashSet}, sync::{Arc, Mutex}};
+
+use zbus::{interface, object_server::SignalEmitter, proxy};
+#[proxy(
+    interface = "org.kde.StatusNotifierWatcher",
+    default_service = "org.kde.StatusNotifierWatcher",
+    default_path = "/StatusNotifierWatcher",
+)]
 pub trait StatusNotifierWatcher {
     /// RegisterStatusNotifierHost method
     fn register_status_notifier_host(&self, service: &str) -> zbus::Result<()>;
@@ -62,4 +62,91 @@ pub trait StatusNotifierWatcher {
     /// RegisteredStatusNotifierItems property
     #[zbus(property)]
     fn registered_status_notifier_items(&self) -> zbus::Result<Vec<String>>;
+}
+
+/// State held by the watcher service on the bus.
+pub struct StatusNotifierWatcherService {
+    /// Stores StatusNotifierItem bus and full path
+    pub items: Arc<Mutex<HashMap<String, String>>>,
+    pub hosts: Vec<String>,
+}
+
+#[interface(name = "org.kde.StatusNotifierWatcher")]
+impl StatusNotifierWatcherService {
+    async fn register_status_notifier_item(
+        &mut self,
+        service: &str,
+        #[zbus(header)] header: zbus::message::Header<'_>,
+        #[zbus(signal_context)] ctxt: SignalEmitter<'_>,
+    ) -> zbus::fdo::Result<()> {
+        // service may be a bus name or an object path. Normalise.
+        let (bus_name, path) = if service.starts_with('/') {
+            // Caller sent object path; use sender's bus name.
+            let sender = header
+                .sender()
+                .ok_or_else(|| zbus::fdo::Error::Failed("no sender".into()))?
+                .to_string();
+            (sender, service.to_string())
+        } else {
+            (service.to_string(), "/StatusNotifierItem".to_string())
+        };
+
+        let key = format!("{bus_name}{path}");
+
+        self.items
+            .lock()
+            .unwrap()
+            .insert(bus_name.clone(), key.clone());
+
+        println!("+ {key} StatusNotifierItem");
+
+        // Emit signal
+        Self::status_notifier_item_registered(&ctxt, &key).await?;
+
+        Ok(())
+    }
+
+    async fn register_status_notifier_host(
+        &mut self,
+        service: &str,
+        #[zbus(signal_context)] ctxt: SignalEmitter<'_>,
+    ) -> zbus::fdo::Result<()> {
+        // TODO get bus_name for this too
+        println!("+ {service} StatusNotifierHost");
+
+        self.hosts.push(service.to_string());
+        Self::status_notifier_host_registered(&ctxt).await?;
+
+        Ok(())
+    }
+
+    #[zbus(property)]
+    async fn registered_status_notifier_items(&self) -> Vec<String> {
+        self.items.lock().unwrap().values().cloned().collect()
+    }
+
+    #[zbus(property)]
+    async fn is_status_notifier_host_registered(&self) -> bool {
+        !self.hosts.is_empty()
+    }
+
+    #[zbus(property)]
+    async fn protocol_version(&self) -> i32 {
+        0
+    }
+
+    #[zbus(signal)]
+    async fn status_notifier_item_registered(
+        ctxt: &SignalEmitter<'_>,
+        service: &str,
+    ) -> zbus::Result<()>;
+
+    #[zbus(signal)]
+    async fn status_notifier_item_unregistered(
+        ctxt: &SignalEmitter<'_>,
+        service: &str,
+    ) -> zbus::Result<()>;
+
+    #[zbus(signal)]
+    async fn status_notifier_host_registered(ctxt: &SignalEmitter<'_>) -> zbus::Result<()>;
 }

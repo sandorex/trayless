@@ -1,16 +1,5 @@
-use crate::{MenuNode, dbus::{dbusmenu::dbusmenuProxyBlocking, status_notifier_item::StatusNotifierItemProxyBlocking, status_notifier_watcher::StatusNotifierWatcherProxyBlocking}};
+use crate::{dbus::{dbusmenu::dbusmenuProxyBlocking, status_notifier_item::StatusNotifierItemProxyBlocking, status_notifier_watcher::StatusNotifierWatcherProxyBlocking}, menu_node::MenuNode};
 use anyhow::Result;
-
-/// Returns executable of the process
-pub fn get_exe_from_pid(pid: u32) -> String {
-    match std::fs::read_link(format!("/proc/{pid}/exe")) {
-        Ok(x) => x
-            .to_string_lossy()
-            .to_string(),
-        // TODO should this error out?
-        Err(_) => "".to_owned(),
-    }
-}
 
 /// Splits path like `:1.298/org/ayatana/NotificationItem/TOA2Xeo1bQ` into
 /// destination `:1.298` and path `/org/ayatana/NotificationItem/TOA2Xeo1bQ`
@@ -23,11 +12,8 @@ pub fn split_path(input: &str) -> Option<(String, String)> {
 
 /// Returns registered tray items
 pub fn get_registered_items() -> Result<Vec<String>> {
-    let watcher_proxy = StatusNotifierWatcherProxyBlocking::builder(&crate::CONN)
-        .destination("org.kde.StatusNotifierWatcher")? // TODO fallback on org.freedesktop.*
-        .path("/StatusNotifierWatcher")?
-        .build()?;
-
+    // TODO do i need fallback to org.freedesktop.StatusNotifierWatcher?
+    let watcher_proxy = StatusNotifierWatcherProxyBlocking::new(&crate::CONN)?;
     Ok(watcher_proxy.registered_status_notifier_items()?)
 }
 
