@@ -14,12 +14,9 @@ pub struct Cli {
 
 #[derive(Args, Debug, Clone)]
 pub struct CmdList {
-    #[clap(long, exclusive = true)]
-    pub list_fields: bool,
-
-    /// Select which fields to return (empty for all)
-    #[clap(short, long)]
-    pub fields: Vec<String>,
+    /// Print help for this command
+    #[clap(short, long, exclusive = true)]
+    pub help: bool,
 }
 
 #[derive(Args, Debug, Clone)]
@@ -105,9 +102,14 @@ pub struct CmdDaemon {
     pub foreground: bool,
 }
 
+#[cfg(feature = "gui")]
+#[derive(Args, Debug, Clone)]
+pub struct CmdGui;
+
 #[derive(Subcommand, Debug, Clone)]
 pub enum CliCommands {
     /// List tray items
+    #[command(disable_help_flag = true)]
     List(CmdList),
 
     /// Call activate on a tray item
@@ -130,6 +132,10 @@ pub enum CliCommands {
     ///
     /// Only one watcher can be active at the time
     Daemon,
+
+    #[cfg(feature = "gui")]
+    /// Open graphical task-switcher like interface to interact with tray items
+    Gui(CmdGui),
 
     #[clap(skip)]
     None,

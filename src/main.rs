@@ -5,13 +5,15 @@ mod daemon;
 mod menu_node;
 mod tray_item;
 
+#[cfg(feature = "gui")]
+mod gui;
+
 use utils::*;
 use std::{io::IsTerminal, sync::LazyLock};
 use anyhow::{Context, anyhow, Result};
-use clap::Parser;
+use clap::{CommandFactory, Parser};
 use zbus::{blocking::{Connection, fdo::DBusProxy}, zvariant::OwnedValue};
-
-use crate::tray_item::TrayItem;
+use tray_item::TrayItem;
 
 // global session bus cause its gonna be used everywhere
 static CONN: LazyLock<Connection> = LazyLock::new(|| {
@@ -42,14 +44,17 @@ fn main() -> Result<()> {
             let rt = tokio::runtime::Runtime::new().unwrap();
             rt.block_on(daemon::cmd_daemon(args, ()))?;
         },
+        #[cfg(feature = "gui")]
+        cli::CliCommands::Gui(x) => gui::window::start(args, x),
         cli::CliCommands::None => unreachable!(),
     };
 
     Ok(())
 }
 
-fn cmd_list(_cli_args: cli::Cli, _cmd_args: cli::CmdList) -> Result<()> {
-    let items = get_registered_items()
+// TODO move to util
+pub fn get_items() -> Result<Vec<TrayItem>> {
+    get_registered_items()
         .with_context(|| "could not get registered items from StatusNotifierWatcher")?
         .into_iter()
         .map(|item| -> Result<TrayItem> {
@@ -61,7 +66,62 @@ fn cmd_list(_cli_args: cli::Cli, _cmd_args: cli::CmdList) -> Result<()> {
 
             Ok(TrayItem::from_proxy(dest, path, &proxy))
         })
-        .collect::<Result<Vec<_>, _>>()?;
+        .collect::<Result<Vec<_>, _>>()
+}
+
+/// Generates help for subcommand list
+fn generate_list_help() -> clap::builder::StyledStr {
+    cli::Cli::command().find_subcommand_mut("list").unwrap().render_long_help()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::generate_list_help;
+
+    #[test]
+    fn generate_list_cmd_help() {
+        // ensure there are no issues as this wont be caught during compilation
+        assert!(!generate_list_help().to_string().is_empty());
+    }
+}
+
+fn cmd_list(_cli_args: cli::Cli, cmd_args: cli::CmdList) -> Result<()> {
+    use code_docs::DocumentedStruct;
+    use std::fmt::Write;
+
+    if cmd_args.help {
+        let mut output = String::new();
+
+        // convert some types to be easier to understand for non-rust users
+        let convert_type = |x: &str| -> String { x.replace("Vec<", "Array<").replace("Option<", "Optional<") };
+
+        // add properties from Config
+        let iter = TrayItem::field_names()
+            .into_iter()
+            .zip(TrayItem::field_types().into_iter())
+            .zip(TrayItem::field_docs().into_iter())
+            .map(|((name, r#type), docs)| (name, r#type, docs));
+
+        for (name, t, docs) in iter {
+            // skip any that contains '@skip' in its docs
+            if docs.join("\n").contains("@skip") {
+                continue;
+            }
+
+            // format like rust docs
+            for i in docs {
+                let _ = writeln!(&mut output, "///{i}");
+            }
+
+            let _ = writeln!(&mut output, "{name}: {}\n", convert_type(t));
+        }
+
+        println!("{}\n--- Properties of a StatusNotifierItem ---\n{}\n", generate_list_help().ansi(), output.trim());
+
+        return Ok(());
+    }
+
+    let items = get_items()?;
 
     let mut stdout = std::io::stdout();
 
