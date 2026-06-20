@@ -17,7 +17,7 @@ fn find_first_image(path: &str) -> Option<String> {
     None
 }
 
-fn widget_from_item(item: TrayItem, icon_theme: &IconTheme) -> Option<gtk4::Picture> {
+fn widget_from_item(item: &TrayItem, icon_theme: &IconTheme) -> Option<gtk4::Picture> {
     let pic = gtk4::Picture::new();
 
     // flatpak icon if available
@@ -34,7 +34,7 @@ fn widget_from_item(item: TrayItem, icon_theme: &IconTheme) -> Option<gtk4::Pict
         pic.set_paintable(Some(&paintable));
     } else {
         // TODO use flatpak id as the icon name when available
-        match (item.icon_name, item.icon_theme_path, item.icon_pixmap) {
+        match (&item.icon_name, &item.icon_theme_path, &item.icon_pixmap) {
             (Some(name), theme, _) if !name.is_empty() => {
                 if let Some(theme) = theme && !theme.is_empty() {
                     let Some(image_file_path) = find_first_image(&format!("{theme}/{name}")) else {
@@ -48,14 +48,14 @@ fn widget_from_item(item: TrayItem, icon_theme: &IconTheme) -> Option<gtk4::Pict
                     pic.set_paintable(Some(&paintable));
                 }
             },
-            (_, _, Some(mut pixmaps)) => {
+            (_, _, Some(pixmaps)) => {
                 use gtk4::gdk::{MemoryTexture, MemoryFormat};
                 use gtk4::glib::Bytes;
 
                 assert!(pixmaps.len() > 0, "empty icon_pixmap");
 
                 // TODO choose which pixmap to use
-                let (width, height, pixels) = pixmaps.pop().unwrap();
+                let (width, height, pixels) = pixmaps.last().cloned().unwrap();
 
                 assert!(pixels.len() > 0, "no pixels in a pixmap");
 
@@ -98,11 +98,13 @@ fn activate(app: &gtk4::Application) {
     let display = gtk4::prelude::RootExt::display(&window);
     let icon_theme = IconTheme::for_display(&display);
 
-    window.set_default_size(250, 250);
+    window.set_default_size(100, 100);
     window.set_resizable(false);
 
     let box_container = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
-    box_container.set_margin_end(10);
+
+    // center horizontally
+    box_container.set_halign(gtk4::Align::Center);
 
     // close window on focus loss
     window.connect_is_active_notify(move |win| {
@@ -118,13 +120,7 @@ fn activate(app: &gtk4::Application) {
         key_controller.connect_key_pressed(move |_, key, _, _| {
             match key {
                 Key::Escape => window.close(),
-                Key::Tab => {
-                },
-                Key::Up => println!("up"),
-                Key::Down => println!("down"),
-                Key::Left => println!("left"),
-                Key::Right => println!("right"),
-                _ => {}
+                _ => return false.into(),
             }
 
             true.into()
@@ -139,13 +135,15 @@ fn activate(app: &gtk4::Application) {
         Err(err) => panic!("{err}"),
     };
 
-    for item in items {
-        #[cfg(debug_assertions)]
-        dbg!(&item);
+    for (i, item) in items.into_iter().enumerate() {
+        // print each item in debug builds
+        if cfg!(debug_assertions) {
+            dbg!(&item);
+        }
 
         let item_path = format!("{}{}", item.name, item.item);
 
-        let Some(img) = widget_from_item(item, &icon_theme) else {
+        let Some(img) = widget_from_item(&item, &icon_theme) else {
             eprintln!("Error: item {item_path} has no icon!");
             continue;
         };
@@ -154,7 +152,23 @@ fn activate(app: &gtk4::Application) {
         img.set_margin_start(15);
         img.set_margin_end(15);
 
-        box_container.append(&img);
+        let btn = gtk4::Button::new();
+        btn.set_child(Some(&img));
+
+        // first item grabs focus
+        if i == 0 {
+            box_container.set_focus_child(Some(&btn));
+        }
+
+        {
+            let window = window.clone();
+            btn.connect_clicked(move |_| {
+                println!("clicked: {:?}", item);
+                window.close();
+            });
+        }
+
+        box_container.append(&btn);
     }
 
     window.set_child(Some(&box_container));
