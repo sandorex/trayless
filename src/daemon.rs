@@ -1,7 +1,7 @@
 use std::{collections::HashMap, sync::{Arc, Mutex}};
 use futures_util::{StreamExt};
 use zbus::{Connection, fdo::DBusProxy};
-use anyhow::{Context, Result, anyhow};
+use anyhow::{Result, anyhow};
 use crate::dbus::status_notifier_watcher::StatusNotifierWatcherService;
 
 pub async fn cmd_daemon(_cli_args: crate::cli::Cli, _cmd_args: ()) -> Result<()> {

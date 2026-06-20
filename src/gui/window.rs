@@ -1,6 +1,83 @@
-use gtk4::prelude::*;
+use gtk4::{IconTheme, gdk::Key, prelude::*};
 use gtk4_layer_shell::{Layer, LayerShell};
-use crate::cli::{Cli, CmdGui};
+use crate::{cli::{Cli, CmdGui}, tray_item::TrayItem};
+
+/// Tries supported extensions on path and returns first successful
+fn find_first_image(path: &str) -> Option<String> {
+    // TODO these are not confirmed just what google said is supported
+    const EXTENSIONS: &[&str] = &[ ".svg", ".png", ".jpg", ".jpeg", ".gif", ".tiff" ];
+
+    for ext in EXTENSIONS {
+        let path = format!("{path}{ext}");
+        if std::fs::exists(&path).unwrap_or(false) {
+            return Some(path);
+        }
+    }
+
+    None
+}
+
+fn widget_from_item(item: TrayItem, icon_theme: &IconTheme) -> Option<gtk4::Picture> {
+    let pic = gtk4::Picture::new();
+
+    // flatpak icon if available
+    if let Some(flatpak_id) =  &item.flatpak_id {
+        let paintable = icon_theme.lookup_icon(
+            &flatpak_id,
+            &[],
+            256,
+            1,
+            gtk4::TextDirection::None,
+            gtk4::IconLookupFlags::empty()
+        );
+
+        pic.set_paintable(Some(&paintable));
+    } else {
+        // TODO use flatpak id as the icon name when available
+        match (item.icon_name, item.icon_theme_path, item.icon_pixmap) {
+            (Some(name), theme, _) if !name.is_empty() => {
+                if let Some(theme) = theme && !theme.is_empty() {
+                    let Some(image_file_path) = find_first_image(&format!("{theme}/{name}")) else {
+                        // TODO this should be a different error
+                        return None;
+                    };
+
+                    pic.set_filename(Some(&image_file_path));
+                } else {
+                    let paintable = icon_theme.lookup_icon(&name, &[], 256, 1, gtk4::TextDirection::None, gtk4::IconLookupFlags::empty());
+                    pic.set_paintable(Some(&paintable));
+                }
+            },
+            (_, _, Some(mut pixmaps)) => {
+                use gtk4::gdk::{MemoryTexture, MemoryFormat};
+                use gtk4::glib::Bytes;
+
+                assert!(pixmaps.len() > 0, "empty icon_pixmap");
+
+                // TODO choose which pixmap to use
+                let (width, height, pixels) = pixmaps.pop().unwrap();
+
+                assert!(pixels.len() > 0, "no pixels in a pixmap");
+
+                let rowstride = (width * 4) as usize;
+                let bytes = Bytes::from(&pixels);
+
+                let texture = MemoryTexture::new(
+                    width,
+                    height,
+                    MemoryFormat::A8r8g8b8,
+                    &bytes,
+                    rowstride,
+                );
+
+                pic.set_paintable(Some(&texture));
+            },
+            _ => return None,
+        }
+    }
+
+    Some(pic)
+}
 
 fn activate(app: &gtk4::Application) {
     // Create a normal window or ApplicationWindow
@@ -18,6 +95,9 @@ fn activate(app: &gtk4::Application) {
         window.set_keyboard_mode(gtk4_layer_shell::KeyboardMode::Exclusive);
     }
 
+    let display = gtk4::prelude::RootExt::display(&window);
+    let icon_theme = IconTheme::for_display(&display);
+
     window.set_default_size(250, 250);
     window.set_resizable(false);
 
@@ -31,6 +111,28 @@ fn activate(app: &gtk4::Application) {
         }
     });
 
+    let key_controller = gtk4::EventControllerKey::new();
+
+    {
+        let window = window.clone();
+        key_controller.connect_key_pressed(move |_, key, _, _| {
+            match key {
+                Key::Escape => window.close(),
+                Key::Tab => {
+                },
+                Key::Up => println!("up"),
+                Key::Down => println!("down"),
+                Key::Left => println!("left"),
+                Key::Right => println!("right"),
+                _ => {}
+            }
+
+            true.into()
+        });
+    }
+
+    window.add_controller(key_controller);
+
     let items = match crate::get_items() {
         Ok(x) => x,
         // TODO is panic the right thing to do here?
@@ -38,46 +140,21 @@ fn activate(app: &gtk4::Application) {
     };
 
     for item in items {
+        #[cfg(debug_assertions)]
         dbg!(&item);
-        match (item.icon_name, item.icon_theme_path, item.icon_pixmap) {
-            (Some(name), theme, _) if !name.is_empty() => {
-                println!("picture {name}, {theme:?}");
-                if let Some(theme) = theme {
-                    let pic = gtk4::Picture::for_filename(format!("{theme}/{name}"));
-                    box_container.append(&pic);
-                } else {
-                    let img = gtk4::Image::from_icon_name(&name);
-                    box_container.append(&img);
-                };
-            },
-            (None, _, Some(mut pixmaps)) => {
-                use gtk4::gdk::{MemoryTexture, MemoryFormat};
-                use gtk4::glib::Bytes;
 
-                // TODO choose which pixmap to use
-                let (width, height, pixels) = pixmaps.pop().unwrap();
+        let item_path = format!("{}{}", item.name, item.item);
 
-                let rowstride = (width * 4) as usize; 
-                let bytes = Bytes::from(&pixels);
-
-                // Create a GPU-friendly texture directly
-                let texture = MemoryTexture::new(
-                    width,
-                    height,
-                    MemoryFormat::A8r8g8b8,
-                    &bytes,
-                    rowstride,
-                );
-
-                let pic = gtk4::Image::from_paintable(Some(&texture));
-
-                box_container.append(&pic);
-            }
-            _ => {
-                eprintln!("Error: item {}{} has no icon!", item.name, item.item);
-                continue;
-            }
+        let Some(img) = widget_from_item(item, &icon_theme) else {
+            eprintln!("Error: item {item_path} has no icon!");
+            continue;
         };
+
+        img.set_size_request(128, 128);
+        img.set_margin_start(15);
+        img.set_margin_end(15);
+
+        box_container.append(&img);
     }
 
     window.set_child(Some(&box_container));

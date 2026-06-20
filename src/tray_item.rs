@@ -26,7 +26,14 @@ code_docs_struct! {
         ///
         /// Can be used to deduce the application when it does not define `id` or `name` properly like
         /// electron apps often do
-        pub exe: String,
+        ///
+        /// Will not be defined for flatpak apps (as they use `xdg-dbus-proxy`)
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pub exe: Option<String>,
+
+        /// Defined if the application is a flatpak
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pub flatpak_id: Option<String>,
 
         /// Notifier title specified by the application
         #[serde(skip_serializing_if = "Option::is_none")]
@@ -56,7 +63,7 @@ impl Debug for TrayItem {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let icon_pixmaps = self.icon_pixmap
             .as_ref()
-            .map(|x| { x.iter().map(|(w, h, pixels)| (*w, *h, pixels.len())).collect::<Vec<_>>() });
+            .map(|x| { x.iter().map(|(w, h, _)| format!("{w}x{h}")).collect::<Vec<_>>() });
 
         f.debug_struct("TrayItem")
             .field("id", &self.id)
@@ -78,10 +85,14 @@ impl TrayItem {
         let pid = DBUS_PROXY.get_connection_unix_process_id(BusName::try_from(destination.clone()).unwrap())
             .unwrap_or(0);
 
-        let exe = if pid != 0 {
-            get_exe_from_pid(pid)
+        let (exe, flatpak_id) = if pid != 0 {
+            if let Some(exe) = get_exe_from_pid(pid) {
+                (Some(exe), None)
+            } else {
+                (None, get_flatpak_id_from_pid(pid))
+            }
         } else {
-            "".to_owned()
+            (None, None)
         };
 
         Self {
@@ -96,18 +107,52 @@ impl TrayItem {
             item,
             name: destination,
             pid,
-            exe
+            exe,
+            flatpak_id,
         }
     }
 }
 
+fn parse_cgroup_flatpak(contents: &str) -> Option<String> {
+    const PAT: &str = "app-flatpak-";
+    let Some(start) = contents.find(PAT) else {
+        return None;
+    };
+
+    let Some(end) = contents[start..].find(|x: char| x.is_ascii_digit()) else {
+        return None;
+    };
+
+    // trim leftover dashes
+    Some(contents[start + PAT.len()..start + end].trim_end_matches('-').to_owned())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_flatpak_cgroup() {
+        assert_eq!(parse_cgroup_flatpak("0::/user.slice/user-1000.slice/user@1000.service/app.slice/app-flatpak-com.discordapp.Discord-884765513.scope"), Some("com.discordapp.Discord".to_owned()));
+    }
+}
+
+fn get_flatpak_id_from_pid(pid: u32) -> Option<String> {
+    match std::fs::read_to_string(format!("/proc/{pid}/cgroup")) {
+        Ok(contents) => parse_cgroup_flatpak(&contents),
+        Err(_) => None,
+    }
+}
+
 /// Returns executable of the process
-fn get_exe_from_pid(pid: u32) -> String {
+fn get_exe_from_pid(pid: u32) -> Option<String> {
     match std::fs::read_link(format!("/proc/{pid}/exe")) {
-        Ok(x) => x
-            .to_string_lossy()
-            .to_string(),
-        // TODO should this error out?
-        Err(_) => "".to_owned(),
+        // xdg dbus proxy is not the actual executable
+        Ok(x) if x.file_name().unwrap_or_default() == "xdg-dbus-proxy" => None,
+        Ok(x) => Some(
+            x.to_string_lossy()
+             .to_string()
+        ),
+        Err(_) => None,
     }
 }
