@@ -122,22 +122,6 @@ fn activate(app: &gtk4::Application, _args: &Cli, _cmd_args: &CmdGui) {
         });
     }
 
-    let key_controller = gtk4::EventControllerKey::new();
-
-    {
-        let window = window.clone();
-        key_controller.connect_key_pressed(move |_, key, _, _| {
-            match key {
-                Key::Escape => window.close(),
-                _ => return false.into(),
-            }
-
-            true.into()
-        });
-    }
-
-    window.add_controller(key_controller);
-
     let items = match crate::get_items() {
         Ok(x) => x,
         // TODO is panic the right thing to do here?
@@ -149,7 +133,7 @@ fn activate(app: &gtk4::Application, _args: &Cli, _cmd_args: &CmdGui) {
         panic!("No tray items");
     }
 
-    for item in items.into_iter() {
+    for (i, item) in items.iter().enumerate() {
         // print each item in debug builds
         if cfg!(debug_assertions) {
             dbg!(&item);
@@ -182,19 +166,53 @@ fn activate(app: &gtk4::Application, _args: &Cli, _cmd_args: &CmdGui) {
 
         let btn = gtk4::Button::new();
         btn.set_child(Some(&btn_container));
-
-        {
-            let window = window.clone();
-            btn.connect_clicked(move |_| {
-                println!("clicked: {:?}", item);
-                window.close();
-            });
-        }
+        unsafe { btn.set_data("index", i) };
 
         box_container.append(&btn);
     }
 
     window.set_child(Some(&box_container));
+
+    let key_controller = gtk4::EventControllerKey::new();
+    key_controller.set_propagation_phase(gtk4::PropagationPhase::Capture);
+
+    {
+        let window = window.clone();
+        let box_container = box_container.clone();
+        key_controller.connect_key_pressed(move |_, key, _, mod_type| {
+            match key {
+                Key::Escape => window.close(),
+                Key::Return | Key::KP_Enter => {
+                    // get focused child
+                    let Some(child) = box_container.focus_child() else {
+                        eprintln!("error could not get focused child");
+                        return true.into();
+                    };
+
+                    let Some(index) = (unsafe { child.data::<usize>("index") }) else {
+                        eprintln!("error could not read index from button");
+                        return true.into();
+                    };
+
+                    let index = unsafe { *index.as_ptr() };
+
+                    // TODO do the calling
+                    if mod_type.contains(gtk4::gdk::ModifierType::SHIFT_MASK) {
+                        println!("opening context menu {}", items[index].id);
+                    } else {
+                        println!("activating {}", items[index].id);
+                    }
+
+                    window.close();
+                },
+                _ => return false.into(),
+            }
+
+            true.into()
+        });
+    }
+
+    window.add_controller(key_controller);
 
     // Present the window
     window.present();

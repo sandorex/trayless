@@ -114,7 +114,7 @@ pub struct CmdGui {
 
     /// Load CSS styling file
     #[clap(long)]
-    pub style: PathBuf,
+    pub style: Option<PathBuf>,
 }
 
 #[derive(Subcommand, Debug, Clone)]
