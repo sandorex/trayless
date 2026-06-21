@@ -1,3 +1,6 @@
+#[cfg(feature = "gui")]
+use std::path::PathBuf;
+
 use clap::{Args, Parser, Subcommand};
 use zbus::zvariant::{OwnedValue, Value};
 
@@ -104,7 +107,15 @@ pub struct CmdDaemon {
 
 #[cfg(feature = "gui")]
 #[derive(Args, Debug, Clone)]
-pub struct CmdGui;
+pub struct CmdGui {
+    /// Starts GTK inspector with the application
+    #[clap(long)]
+    pub inspector: bool,
+
+    /// Load CSS styling file
+    #[clap(long)]
+    pub style: PathBuf,
+}
 
 #[derive(Subcommand, Debug, Clone)]
 pub enum CliCommands {

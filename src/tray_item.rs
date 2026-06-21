@@ -39,6 +39,13 @@ code_docs_struct! {
         #[serde(skip_serializing_if = "Option::is_none")]
         pub title: Option<String>,
 
+        /// Notifier tooltip title, can be used instead of title in some cases
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pub tooltip_title: Option<String>,
+
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pub tooltip_description: Option<String>,
+
         // NOTE there are many apps using pixmaps for icons so this is useless for rofi or something, so
         // im just not gonna output it
         /// Either a path to the icon or relative to `icon_theme_path`
@@ -72,7 +79,10 @@ impl Debug for TrayItem {
             .field("item", &self.item)
             .field("pid", &self.pid)
             .field("exe", &self.exe)
+            .field("flatpak_id", &self.flatpak_id)
             .field("title", &self.title)
+            .field("tooltip_title", &self.tooltip_title)
+            .field("tooltip_description", &self.tooltip_description)
             .field("icon_name", &self.icon_name)
             .field("icon_theme_path", &self.icon_theme_path)
             .field("icon_pixmap", &icon_pixmaps)
@@ -95,6 +105,12 @@ impl TrayItem {
             (None, None)
         };
 
+        // try getting the tooltip
+        let (tooltip_title, tooltip_description) = match proxy.tool_tip() {
+            Ok((_, _, title, desc)) => (Some(title), Some(desc)),
+            Err(_) => (None, None)
+        };
+
         Self {
             id: proxy.id().unwrap_or_default(),
             title: proxy.title().ok(),
@@ -103,6 +119,9 @@ impl TrayItem {
             icon_name: proxy.icon_name().ok(),
             icon_theme_path: proxy.icon_theme_path().ok(),
             icon_pixmap: proxy.icon_pixmap().ok(),
+
+            tooltip_title,
+            tooltip_description,
 
             item,
             name: destination,
