@@ -1,0 +1,20 @@
+[package]
+version = "0.1.0"
+name = "trayless-gtk"
+description = "Task switcher like interface for interacting with tray indicators"
+categories = ["GUI", "gtk4", "trayindicator", "StatusNotifierItem"]
+keywords = ["gtk4", "gui", "window-manager", "wm", "trayindicator", "systray"]
+
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+readme.workspace = true
+
+[dependencies]
+libtrayless.workspace = true
+anyhow.workspace = true
+clap.workspace = true
+tokio.workspace = true
+zbus.workspace = true
+gtk4.workspace = true
+gtk4-layer-shell.workspace = true

@@ -1,7 +1,7 @@
 use std::fmt::Debug;
 
-use zbus::names::BusName;
-use crate::{DBUS_PROXY, dbus::status_notifier_item::StatusNotifierItemProxyBlocking};
+use zbus::{blocking::fdo::DBusProxy, names::BusName};
+use crate::dbus::status_notifier_item::StatusNotifierItemProxyBlocking;
 use code_docs::{code_docs_struct, DocumentedStruct};
 
 code_docs_struct! {
@@ -91,8 +91,8 @@ impl Debug for TrayItem {
 }
 
 impl TrayItem {
-    pub fn from_proxy(destination: String, item: String, proxy: &StatusNotifierItemProxyBlocking) -> Self {
-        let pid = DBUS_PROXY.get_connection_unix_process_id(BusName::try_from(destination.clone()).unwrap())
+    pub fn from_proxy(destination: String, item: String, proxy: &StatusNotifierItemProxyBlocking, dbus_proxy: &DBusProxy) -> Self {
+        let pid = dbus_proxy.get_connection_unix_process_id(BusName::try_from(destination.clone()).unwrap())
             .unwrap_or(0);
 
         let (exe, flatpak_id) = if pid != 0 {

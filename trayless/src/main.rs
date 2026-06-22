@@ -1,20 +1,11 @@
-mod dbus;
 mod cli;
-mod utils;
 mod daemon;
-mod menu_node;
-mod tray_item;
 
-#[cfg(feature = "gui")]
-mod gui;
-
-use utils::*;
 use std::{io::IsTerminal, sync::LazyLock};
 use anyhow::{Context, anyhow, Result};
 use clap::{CommandFactory, Parser};
 use zbus::{blocking::{Connection, fdo::DBusProxy}, zvariant::OwnedValue};
-use tray_item::TrayItem;
-use crate::menu_node::MenuNode;
+use libtrayless::{MenuNode, TrayItem, get_item_menu_layout, get_item_menu_proxy, get_item_proxy, get_items, split_path};
 
 // global session bus cause its gonna be used everywhere
 static CONN: LazyLock<Connection> = LazyLock::new(|| {
@@ -45,45 +36,10 @@ fn main() -> Result<()> {
             let rt = tokio::runtime::Runtime::new().unwrap();
             rt.block_on(daemon::cmd_daemon(args, ()))?;
         },
-        #[cfg(feature = "gui")]
-        cli::CliCommands::Gui(x) => gui::window::start(args, x),
         cli::CliCommands::None => unreachable!(),
     };
 
     Ok(())
-}
-
-// TODO move to util
-pub fn get_items() -> Result<Vec<TrayItem>> {
-    get_registered_items()
-        .with_context(|| "could not get registered items from StatusNotifierWatcher")?
-        .into_iter()
-        .map(|item| -> Result<TrayItem> {
-            let (dest, path) = split_path(&item)
-                .with_context(|| anyhow!("invalid path from registered items {item:?}"))?;
-
-            let proxy = get_item_proxy(&dest, &path)
-                .with_context(|| anyhow!("could not get item proxy from {item:?}"))?;
-
-            Ok(TrayItem::from_proxy(dest, path, &proxy))
-        })
-        .collect::<Result<Vec<_>, _>>()
-}
-
-/// Generates help for subcommand list
-fn generate_list_help() -> clap::builder::StyledStr {
-    cli::Cli::command().find_subcommand_mut("list").unwrap().render_long_help()
-}
-
-#[cfg(test)]
-mod tests {
-    use super::generate_list_help;
-
-    #[test]
-    fn generate_list_cmd_help() {
-        // ensure there are no issues as this wont be caught during compilation
-        assert!(!generate_list_help().to_string().is_empty());
-    }
 }
 
 fn cmd_list(_cli_args: cli::Cli, cmd_args: cli::CmdList) -> Result<()> {
@@ -122,7 +78,7 @@ fn cmd_list(_cli_args: cli::Cli, cmd_args: cli::CmdList) -> Result<()> {
         return Ok(());
     }
 
-    let items = get_items()?;
+    let items = get_items(&CONN, &DBUS_PROXY)?;
 
     let mut stdout = std::io::stdout();
 
@@ -140,7 +96,7 @@ fn cmd_activate(_cli_args: cli::Cli, cmd_args: cli::CmdActivate) -> Result<()> {
     let (dest, path) = split_path(&cmd_args.path)
         .with_context(|| anyhow!("could not parse destination {:?}", cmd_args.path))?;
 
-    let proxy = get_item_proxy(&dest, &path)
+    let proxy = get_item_proxy(&CONN, &dest, &path)
         .with_context(|| anyhow!("could not get item proxy from {:?}", cmd_args.path))?;
 
     if cmd_args.secondary {
@@ -158,7 +114,7 @@ fn cmd_scroll(_cli_args: cli::Cli, cmd_args: cli::CmdScroll) -> Result<()> {
     let (dest, path) = split_path(&cmd_args.path)
         .with_context(|| anyhow!("could not parse destination {:?}", cmd_args.path))?;
 
-    let proxy = get_item_proxy(&dest, &path)
+    let proxy = get_item_proxy(&CONN, &dest, &path)
         .with_context(|| anyhow!("could not get item proxy from {:?}", cmd_args.path))?;
 
     proxy.scroll(cmd_args.delta, &cmd_args.orientation)?;
@@ -170,7 +126,7 @@ fn cmd_layout(_cli_args: cli::Cli, cmd_args: cli::CmdLayout) -> Result<()> {
     let (dest, path) = split_path(&cmd_args.path)
         .with_context(|| anyhow!("could not parse destination {:?}", cmd_args.path))?;
 
-    let proxy = get_item_menu_proxy(&dest, &path)
+    let proxy = get_item_menu_proxy(&CONN, &dest, &path)
         .with_context(|| anyhow!("could not get menu proxy from {:?}", cmd_args.path))?;
 
     let mut layout = get_item_menu_layout(&proxy)
@@ -226,10 +182,26 @@ fn cmd_menu(_cli_args: cli::Cli, cmd_args: cli::CmdClick) -> Result<()> {
     let (dest, path) = split_path(&cmd_args.path)
         .with_context(|| anyhow!("could not parse destination {:?}", cmd_args.path))?;
 
-    let proxy = get_item_menu_proxy(&dest, &path)
+    let proxy = get_item_menu_proxy(&CONN, &dest, &path)
         .with_context(|| anyhow!("could not get menu proxy from {:?}", cmd_args.path))?;
 
     proxy.event(cmd_args.id, "clicked", cmd_args.data.as_ref().unwrap_or(&OwnedValue::from(0)), 0)?;
 
     Ok(())
+}
+
+/// Generates help for subcommand list
+fn generate_list_help() -> clap::builder::StyledStr {
+    cli::Cli::command().find_subcommand_mut("list").unwrap().render_long_help()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::generate_list_help;
+
+    #[test]
+    fn generate_list_cmd_help() {
+        // ensure there are no issues as this wont be caught during compilation
+        assert!(!generate_list_help().to_string().is_empty());
+    }
 }

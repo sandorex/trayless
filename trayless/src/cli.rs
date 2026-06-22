@@ -1,10 +1,7 @@
-#[cfg(feature = "gui")]
-use std::path::PathBuf;
-
 use clap::{Args, Parser, Subcommand};
 use zbus::zvariant::{OwnedValue, Value};
 
-/// Utility for manipulating and querying tray indicators
+/// Utility for interacting with and querying tray indicators
 ///
 /// Intended for use with window managers but works on any complient desktop
 /// environment
@@ -105,17 +102,17 @@ pub struct CmdDaemon {
     pub foreground: bool,
 }
 
-#[cfg(feature = "gui")]
-#[derive(Args, Debug, Clone)]
-pub struct CmdGui {
-    /// Starts GTK inspector with the application
-    #[clap(long)]
-    pub inspector: bool,
-
-    /// Load CSS styling file
-    #[clap(long)]
-    pub style: Option<PathBuf>,
-}
+// #[cfg(feature = "gui")]
+// #[derive(Args, Debug, Clone)]
+// pub struct CmdGui {
+//     /// Starts GTK inspector with the application
+//     #[clap(long)]
+//     pub inspector: bool,
+//
+//     /// Load CSS styling file
+//     #[clap(long)]
+//     pub style: Option<PathBuf>,
+// }
 
 #[derive(Subcommand, Debug, Clone)]
 pub enum CliCommands {
@@ -143,10 +140,6 @@ pub enum CliCommands {
     ///
     /// Only one watcher can be active at the time
     Daemon,
-
-    #[cfg(feature = "gui")]
-    /// Open graphical task-switcher like interface to interact with tray items
-    Gui(CmdGui),
 
     #[clap(skip)]
     None,

@@ -901,6 +901,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "68ab91017fe16c622486840e4c83c9a37afeff978bd239b5293d61ece587de66"
 
 [[package]]
+name = "libtrayless"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "code-docs-rs",
+ "serde",
+ "zbus",
+]
+
+[[package]]
 name = "linux-raw-sys"
 version = "0.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1354,10 +1364,22 @@ dependencies = [
  "clap",
  "code-docs-rs",
  "futures-util",
- "gtk4",
- "gtk4-layer-shell",
+ "libtrayless",
  "serde",
  "serde_json",
+ "tokio",
+ "zbus",
+]
+
+[[package]]
+name = "trayless-gtk"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "gtk4",
+ "gtk4-layer-shell",
+ "libtrayless",
  "tokio",
  "zbus",
 ]

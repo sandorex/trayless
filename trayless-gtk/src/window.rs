@@ -1,6 +1,6 @@
 use gtk4::{IconTheme, gdk::Key, prelude::*};
 use gtk4_layer_shell::{Layer, LayerShell};
-use crate::{cli::{Cli, CmdGui}, tray_item::TrayItem};
+use libtrayless::{TrayItem, get_items};
 
 /// Tries supported extensions on path and returns first successful
 fn find_first_image(path: &str) -> Option<String> {
@@ -65,8 +65,7 @@ fn widget_from_item(item: &TrayItem, icon_theme: &IconTheme) -> Option<gtk4::Pic
 }
 
 // TODO reopen the window if the some tray icon gets added/removed
-// TODO no item is visibly focused on startup
-fn activate(app: &gtk4::Application, _args: &Cli, _cmd_args: &CmdGui) {
+pub fn activate(app: &gtk4::Application, _args: &crate::cli::Cli) {
     let gtk_inspector = std::env::var("GTK_DEBUG").is_ok_and(|x| x == "interactive");
 
     // Create a normal window or ApplicationWindow
@@ -122,7 +121,7 @@ fn activate(app: &gtk4::Application, _args: &Cli, _cmd_args: &CmdGui) {
         });
     }
 
-    let items = match crate::get_items() {
+    let items = match get_items(&crate::CONN, &crate::DBUS_PROXY) {
         Ok(x) => x,
         // TODO is panic the right thing to do here?
         Err(err) => panic!("{err}"),
@@ -219,20 +218,4 @@ fn activate(app: &gtk4::Application, _args: &Cli, _cmd_args: &CmdGui) {
 
     // focus first entry
     box_container.first_child().unwrap().grab_focus();
-}
-
-/// Start GUI with args passed to GTK
-pub fn start(args: Cli, cmd_args: CmdGui) {
-    let app = gtk4::Application::new(
-        Some("com.github.sandorex.trayless"),
-        Default::default(),
-    );
-
-    // enable inspector
-    if cmd_args.inspector {
-        unsafe { std::env::set_var("GTK_DEBUG", "interactive") };
-    }
-
-    app.connect_activate(move |win| activate(win, &args, &cmd_args));
-    app.run_with_args::<String>(&[]); // it parses arguments and breaks
 }

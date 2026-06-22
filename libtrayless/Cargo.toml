@@ -1,0 +1,15 @@
+[package]
+version = "0.1.0"
+name = "libtrayless"
+publish = false
+
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+readme.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+serde.workspace = true
+zbus.workspace = true
+code-docs-rs.workspace = true
