@@ -102,18 +102,6 @@ pub struct CmdDaemon {
     pub foreground: bool,
 }
 
-// #[cfg(feature = "gui")]
-// #[derive(Args, Debug, Clone)]
-// pub struct CmdGui {
-//     /// Starts GTK inspector with the application
-//     #[clap(long)]
-//     pub inspector: bool,
-//
-//     /// Load CSS styling file
-//     #[clap(long)]
-//     pub style: Option<PathBuf>,
-// }
-
 #[derive(Subcommand, Debug, Clone)]
 pub enum CliCommands {
     /// List tray items

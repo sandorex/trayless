@@ -4,6 +4,11 @@ use zbus::{blocking::fdo::DBusProxy, names::BusName};
 use crate::dbus::status_notifier_item::StatusNotifierItemProxyBlocking;
 use code_docs::{code_docs_struct, DocumentedStruct};
 
+// TODO should i add ItemIsMenu back in?
+//
+// Explaination from KDE plasma:
+//   The item only support the context menu, the visualization should
+//   prefer showing the menu or sending ContextMenu() instead of Activate()
 code_docs_struct! {
     #[derive(Clone, serde::Serialize)]
     pub struct TrayItem {
@@ -110,6 +115,8 @@ impl TrayItem {
             Ok((_, _, title, desc)) => (Some(title), Some(desc)),
             Err(_) => (None, None)
         };
+
+        // let _ = dbg!(proxy.item_is_menu());
 
         Self {
             id: proxy.id().unwrap_or_default(),

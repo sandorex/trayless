@@ -132,39 +132,7 @@ fn cmd_layout(_cli_args: cli::Cli, cmd_args: cli::CmdLayout) -> Result<()> {
     let mut layout = get_item_menu_layout(&proxy)
         .with_context(|| anyhow!("could not get menu layout from {:?}", cmd_args.path))?;
 
-    fn filter_nodes(root: &mut MenuNode, hidden: bool, disabled: bool) {
-        for id in root.children.iter().map(|x| x.id).collect::<Vec<_>>() {
-            let (visible, enabled, index) = {
-                let index = root.children.iter().position(|x| x.id == id).unwrap();
-                (root.children[index].visible.clone(), root.children[index].enabled.clone(), index)
-            };
-
-            // is it hidden
-            match (hidden, visible) {
-                (false, Some(false)) => {
-                    root.children.swap_remove(index);
-                    continue
-                },
-                _ => {}
-            };
-
-            // is it disabled
-            match (disabled, enabled) {
-                (false, Some(false)) => {
-                    root.children.swap_remove(index);
-                    continue
-                },
-                _ => {}
-            };
-
-            // it is visible so now recursively go into the children
-            for child in &mut root.children[index].children {
-                filter_nodes(child, hidden, disabled);
-            }
-        }
-    }
-
-    filter_nodes(&mut layout, cmd_args.hidden, cmd_args.disabled);
+    MenuNode::filter_nodes(&mut layout, cmd_args.hidden, cmd_args.disabled);
 
     let mut stdout = std::io::stdout();
 

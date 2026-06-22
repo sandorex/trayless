@@ -1,5 +1,7 @@
 mod cli;
 mod window;
+mod main_window;
+mod menu_window;
 
 use std::sync::LazyLock;
 use zbus::blocking::{Connection, fdo::DBusProxy};
@@ -27,6 +29,6 @@ fn main() {
         Default::default(),
     );
 
-    app.connect_activate(move |win| window::activate(win, &args));
+    app.connect_activate(move |win| main_window::activate(win, &args));
     app.run_with_args::<String>(&[]); // it parses arguments and breaks
 }

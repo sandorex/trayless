@@ -62,8 +62,6 @@ impl MenuNode {
         })
     }
 
-    // TODO add a function to recursively go over all children but able to modify it
-
     #[allow(unused)]
     pub fn is_root(&self) -> bool {
         self.id == 0
@@ -78,5 +76,39 @@ impl MenuNode {
             && self.toggle_state.is_none()
             && self.children.is_empty()
     }
+
+    /// Filter out hidden or disabled nodes
+    pub fn filter_nodes(root: &mut MenuNode, hidden: bool, disabled: bool) {
+        for id in root.children.iter().map(|x| x.id).collect::<Vec<_>>() {
+            let (visible, enabled, index) = {
+                let index = root.children.iter().position(|x| x.id == id).unwrap();
+                (root.children[index].visible.clone(), root.children[index].enabled.clone(), index)
+            };
+
+            // is it hidden
+            match (hidden, visible) {
+                (false, Some(false)) => {
+                    root.children.swap_remove(index);
+                    continue
+                },
+                _ => {}
+            };
+
+            // is it disabled
+            match (disabled, enabled) {
+                (false, Some(false)) => {
+                    root.children.swap_remove(index);
+                    continue
+                },
+                _ => {}
+            };
+
+            // it is visible so now recursively go into the children
+            for child in &mut root.children[index].children {
+                Self::filter_nodes(child, hidden, disabled);
+            }
+        }
+    }
+
 }
 

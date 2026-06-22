@@ -1,3 +1,4 @@
+use std::path::PathBuf;
 use clap::Parser;
 
 /// Task switcher like interface for interacting with tray indicators
@@ -8,10 +9,9 @@ pub struct Cli {
     #[clap(long)]
     pub inspector: bool,
 
-    // TODO
-    // /// Load CSS styling file
-    // #[clap(long)]
-    // pub style: Option<PathBuf>,
+    /// Load CSS styling file
+    #[clap(long)]
+    pub style: Option<PathBuf>,
 }
 
 #[cfg(test)]
