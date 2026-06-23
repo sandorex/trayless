@@ -1,3 +1,4 @@
+use std::rc::Rc;
 use gtk4::{IconTheme, gdk::Key, prelude::*};
 use libtrayless::{TrayItem, get_item_menu_proxy, get_item_proxy, get_items, get_item_menu_layout};
 use anyhow::{Result, anyhow};
@@ -65,34 +66,7 @@ fn widget_from_item(item: &TrayItem, icon_theme: &IconTheme) -> Result<gtk4::Pic
 
 // TODO reopen the window if the some tray icon gets added/removed
 pub fn activate(app: &gtk4::Application, args: &crate::cli::Cli) {
-    let gtk_inspector = std::env::var("GTK_DEBUG").is_ok_and(|x| x == "interactive");
-
-    // Create a normal window or ApplicationWindow
-    let window = gtk4::ApplicationWindow::new(app);
-
-    if !gtk4_layer_shell::is_supported() {
-        eprintln!("Layer shell protocol not supported..\n  More information: https://wayland.app/protocols/wlr-layer-shell-unstable-v1");
-    } else {
-        crate::window::setup_layer_shell(&window);
-    }
-
-    let display = gtk4::prelude::RootExt::display(&window);
-    let icon_theme = IconTheme::for_display(&display);
-
-    crate::window::load_style(&display, args.style.as_deref());
-
-    window.add_css_class("mainWindow");
-    window.set_default_size(50, 50);
-    window.set_resizable(false);
-
-    // close window on focus loss (not when inspector is running)
-    if !gtk_inspector {
-        window.connect_is_active_notify(move |win| {
-            if !win.is_active() {
-                win.close();
-            }
-        });
-    }
+    let (window, icon_theme) = crate::window::new_window(&app, args.style.as_deref());
 
     setup_layout(&app, &window, &icon_theme);
 
@@ -114,7 +88,7 @@ fn setup_layout(app: &gtk4::Application, window: &gtk4::ApplicationWindow, icon_
     box_container.set_margin_end(MARGIN);
 
     let items = match get_items(&crate::CONN, &crate::DBUS_PROXY) {
-        Ok(x) => x,
+        Ok(x) => Rc::new(x),
         // TODO is panic the right thing to do here?
         Err(err) => panic!("{err}"),
     };
@@ -130,7 +104,7 @@ fn setup_layout(app: &gtk4::Application, window: &gtk4::ApplicationWindow, icon_
             (_, Some(title), _) if !title.is_empty() => title,
 
             // fallback to tooltip title
-            (_, _, Some(t_title)) => t_title,
+            (_, _, Some(t_title)) if !t_title.is_empty() => t_title,
 
             // fallback to id
             (id, _, _) => id,
@@ -161,67 +135,102 @@ fn setup_layout(app: &gtk4::Application, window: &gtk4::ApplicationWindow, icon_
 
         let btn = gtk4::Button::new();
         btn.set_child(Some(&btn_container));
-        unsafe { btn.set_data("index", i) };
+
+        let action_menu = {
+            let index = i;
+            let app = app.clone();
+            let items = Rc::clone(&items);
+            Rc::new(move || {
+                let item = &items[index];
+
+                match get_item_menu_proxy(&crate::CONN, &item.name, &item.menu) {
+                    Ok(proxy) => {
+                        match get_item_menu_layout(&proxy) {
+                            Ok(layout) => {
+                                crate::menu_window::activate(&app, None, item.clone(), layout);
+                            },
+                            Err(err) => eprintln!("Error: {err}")
+                        };
+                    },
+                    Err(err) => eprintln!("Error: {err}")
+                };
+            })
+        };
+
+        let action_activate = {
+            let index = i;
+            let items = Rc::clone(&items);
+            Rc::new(move || {
+                let item = &items[index];
+
+                match get_item_proxy(&crate::CONN, &item.name, &item.item) {
+                    Ok(proxy) => {
+                        // TODO call ContextMenu if ItemIsMenu
+                        match proxy.activate(0, 0) {
+                            Ok(_) => {},
+                            Err(err) => eprintln!("Error: {err}")
+                        }
+                    },
+                    Err(err) => eprintln!("Error: {err}")
+                };
+            })
+        };
+
+        {
+            let key_controller = gtk4::EventControllerKey::new();
+
+            let action_menu = Rc::clone(&action_menu);
+            let action_activate = Rc::clone(&action_activate);
+            let window = window.clone();
+            key_controller.connect_key_pressed(move |_, key, _, mod_type| {
+                match key {
+                    Key::Return | Key::KP_Enter => {
+                        if mod_type.contains(gtk4::gdk::ModifierType::SHIFT_MASK) {
+                            action_activate();
+                        } else {
+                            action_menu();
+                        }
+                    },
+                    _ => return false.into(),
+                }
+
+                true.into()
+            });
+
+            btn.add_controller(key_controller);
+        }
+
+        {
+            let controller = gtk4::GestureClick::new();
+            controller.set_button(0); // capture all mouse clicks
+
+            controller.connect_pressed(move |gesture, _, _, _| {
+                match gesture.current_button() {
+                    gtk4::gdk::BUTTON_PRIMARY => action_menu(),
+                    gtk4::gdk::BUTTON_SECONDARY => action_activate(),
+                    _ => { return; }
+                }
+
+                gesture.set_state(gtk4::EventSequenceState::Claimed);
+            });
+
+            btn.add_controller(controller);
+        }
 
         box_container.append(&btn);
     }
 
     window.set_child(Some(&box_container));
 
+    // TODO move to the new window function
     let key_controller = gtk4::EventControllerKey::new();
     key_controller.set_propagation_phase(gtk4::PropagationPhase::Capture);
 
     {
         let window = window.clone();
-        let app = app.clone();
-        let box_container = box_container.clone();
-        key_controller.connect_key_pressed(move |_, key, _, mod_type| {
+        key_controller.connect_key_pressed(move |_, key, _, _| {
             match key {
                 Key::Escape => window.close(),
-                Key::Return | Key::KP_Enter => {
-                    // get focused child
-                    let Some(child) = box_container.focus_child() else {
-                        eprintln!("error could not get focused child");
-                        return true.into();
-                    };
-
-                    let Some(index) = (unsafe { child.data::<usize>("index") }) else {
-                        eprintln!("error could not read index from button");
-                        return true.into();
-                    };
-
-                    let index = unsafe { *index.as_ptr() };
-
-                    window.close();
-
-                    let item = &items[index];
-
-                    if mod_type.contains(gtk4::gdk::ModifierType::SHIFT_MASK) {
-                        match get_item_menu_proxy(&crate::CONN, &item.name, &item.menu) {
-                            Ok(proxy) => {
-                                match get_item_menu_layout(&proxy) {
-                                    Ok(layout) => {
-                                        // NOTE make sure window is closed before opening a new one
-                                        crate::menu_window::activate(&app, None, item.clone(), layout);
-                                    },
-                                    Err(err) => eprintln!("Error: {err}")
-                                };
-                            },
-                            Err(err) => eprintln!("Error: {err}")
-                        };
-                    } else {
-                        match get_item_proxy(&crate::CONN, &item.name, &item.item) {
-                            Ok(proxy) => {
-                                // TODO call ContextMenu if ItemIsMenu
-                                match proxy.activate(0, 0) {
-                                    Ok(_) => {},
-                                    Err(err) => eprintln!("Error: {err}")
-                                }
-                            },
-                            Err(err) => eprintln!("Error: {err}")
-                        };
-                    }
-                },
                 _ => return false.into(),
             }
 

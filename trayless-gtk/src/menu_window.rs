@@ -1,44 +1,19 @@
-use std::path::Path;
-use gtk4::{IconTheme, gdk::Key, prelude::*};
-use libtrayless::{MenuNode, TrayItem};
+use std::{path::Path, rc::Rc};
+use gtk4::{ApplicationWindow, gdk::Key, prelude::*};
+use gtk4_layer_shell::LayerShell;
+use libtrayless::{MenuNode, TrayItem, get_item_menu_proxy};
+use zbus::zvariant::OwnedValue;
 
 pub fn activate(app: &gtk4::Application, style_file: Option<&Path>, item: TrayItem, menu: MenuNode) {
-    let gtk_inspector = std::env::var("GTK_DEBUG").is_ok_and(|x| x == "interactive");
+    let (window, _) = crate::window::new_window(&app, style_file.as_deref());
 
-    // Create a normal window or ApplicationWindow
-    let window = gtk4::ApplicationWindow::new(app);
-
-    if !gtk4_layer_shell::is_supported() {
-        eprintln!("Layer shell protocol not supported..\n  More information: https://wayland.app/protocols/wlr-layer-shell-unstable-v1");
-    } else {
-        crate::window::setup_layer_shell(&window);
-    }
-
-    let display = gtk4::prelude::RootExt::display(&window);
-    let icon_theme = IconTheme::for_display(&display);
-
-    crate::window::load_style(&display, style_file);
-
-    window.add_css_class("menuWindow");
-    window.set_default_size(50, 50);
-    window.set_resizable(false);
-
-    // close window on focus loss (not when inspector is running)
-    if !gtk_inspector {
-        window.connect_is_active_notify(move |win| {
-            if !win.is_active() {
-                win.close();
-            }
-        });
-    }
-
-    setup_layout(&window, &icon_theme, item, menu);
+    setup_layout(&window, item, menu);
 
     // Present the window
     window.present();
 }
 
-fn setup_layout(window: &gtk4::ApplicationWindow, _icon_theme: &gtk4::IconTheme, item: TrayItem, mut menu: MenuNode) {
+fn setup_layout(window: &ApplicationWindow, item: TrayItem, mut menu: MenuNode) {
     let box_container = gtk4::Box::new(gtk4::Orientation::Vertical, 10);
 
     // center horizontally
@@ -54,20 +29,82 @@ fn setup_layout(window: &gtk4::ApplicationWindow, _icon_theme: &gtk4::IconTheme,
     // remove hidden nodes, disabled will be shown but unclickable
     MenuNode::filter_nodes(&mut menu, false, true);
 
+    let item = Rc::new(item);
+
     // TODO icons
     // TODO nested menus?
+    // TODO toggle types
     for node in menu.children {
         let widget: gtk4::Widget = if let Some(label) = node.label {
+            if !node.children.is_empty() {
+                eprintln!("Nested menu items are not supported at the moment");
+                continue
+            }
+
             let button = gtk4::Button::new();
             button.set_label(&label);
 
             if node.enabled.unwrap_or(true) {
+                let action_event = {
+                    let window = window.clone();
+                    let item = Rc::clone(&item);
+                    let id = node.id;
+                    Rc::new(move || {
+                        match get_item_menu_proxy(&crate::CONN, &item.name, &item.menu) {
+                            Ok(proxy) => {
+                                match proxy.event(id, "clicked", &OwnedValue::from(0), 0) {
+                                    Ok(_) => {},
+                                    Err(err) => eprintln!("Error: {err}"),
+                                }
+                            },
+                            Err(err) => eprintln!("Error: {err}"),
+                        }
+
+                        window.destroy();
+                    })
+                };
+
+
                 {
-                    // TODO activate the menu item
-                    let id = node.id.clone();
-                    button.connect_clicked(move |_| {
-                        println!("clicked id {id}");
+                    let key_controller = gtk4::EventControllerKey::new();
+
+                    let action_event = Rc::clone(&action_event);
+                    // let window = window.clone();
+                    key_controller.connect_key_pressed(move |_, key, _, _| {
+                        match key {
+                            Key::Return | Key::KP_Enter => {
+                                action_event();
+                            },
+                            _ => return false.into(),
+                        }
+
+                        true.into()
                     });
+
+                    button.add_controller(key_controller);
+                }
+
+                {
+                    let controller = gtk4::GestureClick::new();
+                    controller.set_button(0); // capture all mouse clicks
+
+                    controller.connect_pressed(move |gesture, _, _, _| {
+                        // let widget = gesture.widget().unwrap();
+                        // let data = unsafe { widget.data::<ButtonData>(DATA_KEY).unwrap().as_ref() };
+
+                        // i have no use for middle or right click
+                        match gesture.current_button() {
+                            gtk4::gdk::BUTTON_PRIMARY => {
+                                gesture.set_state(gtk4::EventSequenceState::Claimed);
+                                action_event();
+                            },
+
+                            _ => {}
+                        }
+
+                        gesture.set_state(gtk4::EventSequenceState::None);
+                    });
+                    button.add_controller(controller);
                 }
             } else {
                 // button is visible but disabled
@@ -88,6 +125,7 @@ fn setup_layout(window: &gtk4::ApplicationWindow, _icon_theme: &gtk4::IconTheme,
     key_controller.set_propagation_phase(gtk4::PropagationPhase::Capture);
 
     {
+        // TODO the window wont die
         let window = window.clone();
         key_controller.connect_key_pressed(move |_, key, _, _| {
             match key {

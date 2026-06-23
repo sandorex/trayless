@@ -11,3 +11,7 @@ button:focus {
 button:disabled {
     border: 0;
 }
+
+window {
+    border-radius: 10px;
+}
