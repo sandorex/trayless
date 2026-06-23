@@ -181,7 +181,6 @@ fn setup_layout(app: &gtk4::Application, window: &gtk4::ApplicationWindow, icon_
 
             let action_menu = Rc::clone(&action_menu);
             let action_activate = Rc::clone(&action_activate);
-            let window = window.clone();
             key_controller.connect_key_pressed(move |_, key, _, mod_type| {
                 match key {
                     Key::Return | Key::KP_Enter => {
@@ -221,22 +220,4 @@ fn setup_layout(app: &gtk4::Application, window: &gtk4::ApplicationWindow, icon_
     }
 
     window.set_child(Some(&box_container));
-
-    // TODO move to the new window function
-    let key_controller = gtk4::EventControllerKey::new();
-    key_controller.set_propagation_phase(gtk4::PropagationPhase::Capture);
-
-    {
-        let window = window.clone();
-        key_controller.connect_key_pressed(move |_, key, _, _| {
-            match key {
-                Key::Escape => window.close(),
-                _ => return false.into(),
-            }
-
-            true.into()
-        });
-    }
-
-    window.add_controller(key_controller);
 }

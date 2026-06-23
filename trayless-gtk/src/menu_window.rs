@@ -1,6 +1,5 @@
 use std::{path::Path, rc::Rc};
 use gtk4::{ApplicationWindow, gdk::Key, prelude::*};
-use gtk4_layer_shell::LayerShell;
 use libtrayless::{MenuNode, TrayItem, get_item_menu_proxy};
 use zbus::zvariant::OwnedValue;
 
@@ -120,22 +119,4 @@ fn setup_layout(window: &ApplicationWindow, item: TrayItem, mut menu: MenuNode) 
     }
 
     window.set_child(Some(&box_container));
-
-    let key_controller = gtk4::EventControllerKey::new();
-    key_controller.set_propagation_phase(gtk4::PropagationPhase::Capture);
-
-    {
-        // TODO the window wont die
-        let window = window.clone();
-        key_controller.connect_key_pressed(move |_, key, _, _| {
-            match key {
-                Key::Escape => window.close(),
-                _ => return false.into(),
-            }
-
-            true.into()
-        });
-    }
-
-    window.add_controller(key_controller);
 }

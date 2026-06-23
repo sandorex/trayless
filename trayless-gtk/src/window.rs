@@ -58,6 +58,24 @@ pub fn new_window(app: &Application, user_style: Option<&Path>) -> (ApplicationW
         });
     }
 
+    // quit on escape
+    let key_controller = gtk4::EventControllerKey::new();
+    {
+        key_controller.set_propagation_phase(gtk4::PropagationPhase::Capture);
+
+        let window = window.clone();
+        key_controller.connect_key_pressed(move |_, key, _, _| {
+            match key {
+                gtk4::gdk::Key::Escape => window.close(),
+                _ => return false.into(),
+            }
+
+            true.into()
+        });
+    }
+
+    window.add_controller(key_controller);
+
     // NOTE im pretty sure these are reference counted, im not actually cloning everything
     (window.clone(), icon_theme.clone())
 }
